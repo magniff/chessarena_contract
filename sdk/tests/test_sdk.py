@@ -551,10 +551,12 @@ def test_resume_finds_creation_even_when_history_spans_many_chunks(make_client):
     """Regression: attaching to a game whose history spans more than one log-scan chunk must replay from
     GameCreated, not from the most recent chunk that happens to contain one of its events."""
     a, b = make_client(), make_client()
-    ga = a.create_game("0.01", colour="white")
+    # a 1-day clock: anvil may advance the timestamp per mined block (1 s each in newer versions), and 25k
+    # blocks must not flag anyone
+    ga = a.create_game("0.01", colour="white", base_time=86_400)
     gb = b.join_game(ga.id)
     ga.move("e4")
-    a.w3.provider.make_request("anvil_mine", [hex(25_000)])   # push later events into a different chunk
+    a.w3.provider.make_request("anvil_mine", [hex(25_000), hex(1)])   # push later events into a different chunk
     gb.move("e5")
     fresh = Client.connect("local", wallet=a.wallet)
     g = fresh.game(ga.id)
