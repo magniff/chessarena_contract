@@ -1,4 +1,4 @@
-"""Where the contract lives. Add your deployment here or override with C4P_RPC / C4P_CONTRACT."""
+"""Where the contract lives. Add your deployment here or override with ARENA_RPC / ARENA_CONTRACT."""
 from __future__ import annotations
 
 import json
@@ -39,12 +39,12 @@ def resolve(network: str, rpc: Optional[str], contract: Optional[str]) -> Networ
     n = NETWORKS.get(network)
     if n is None:
         raise ValueError(f"unknown network {network!r}; known: {', '.join(NETWORKS)}")
-    rpc = rpc or os.environ.get("C4P_RPC") or n.rpc
-    contract = contract or os.environ.get("C4P_CONTRACT") or n.contract
+    rpc = rpc or os.environ.get("ARENA_RPC") or n.rpc
+    contract = contract or os.environ.get("ARENA_CONTRACT") or n.contract
     if not contract:
         raise ValueError(
-            f"no contract address known for {network!r}: pass contract=... or set C4P_CONTRACT"
+            f"no contract address known for {network!r}: pass contract=... or set ARENA_CONTRACT"
         )
-    codehash = os.environ.get("C4P_CODEHASH") or n.codehash or _official_codehash()
-    deploy_block = int(os.environ.get("C4P_DEPLOY_BLOCK") or n.deploy_block)
+    codehash = os.environ.get("ARENA_CODEHASH") or n.codehash or _official_codehash()
+    deploy_block = int(os.environ.get("ARENA_DEPLOY_BLOCK") or n.deploy_block)
     return Network(rpc, contract, n.local, codehash, deploy_block)

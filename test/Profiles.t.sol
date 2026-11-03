@@ -2,15 +2,15 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 
 contract ProfilesTest is Test {
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
     }
 
     function _set(address who, string memory n, string memory d) internal {
@@ -20,7 +20,7 @@ contract ProfilesTest is Test {
 
     function test_setAndRead() public {
         vm.expectEmit(true, false, false, true);
-        emit Chess4Profit.ProfileUpdated(alice, "Deep Pawn 2", "Stockfish 19, skill 20. Plays 300+2 tables.");
+        emit ChessArena.ProfileUpdated(alice, "Deep Pawn 2", "Stockfish 19, skill 20. Plays 300+2 tables.");
         _set(alice, "Deep Pawn 2", "Stockfish 19, skill 20. Plays 300+2 tables.");
         (string memory n, string memory d) = game.profileOf(alice);
         assertEq(n, "Deep Pawn 2");
@@ -56,7 +56,7 @@ contract ProfilesTest is Test {
     function test_lengthLimits() public {
         _set(alice, "abcdefghijklmnopqrstuvwxyz012345", ""); // exactly 32
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.BadName.selector);
+        vm.expectRevert(ChessArena.BadName.selector);
         game.setProfile("abcdefghijklmnopqrstuvwxyz0123456", ""); // 33
         bytes memory d = new bytes(280);
         for (uint256 i; i < d.length; ++i) d[i] = "x";
@@ -64,7 +64,7 @@ contract ProfilesTest is Test {
         bytes memory d2 = new bytes(281);
         for (uint256 i; i < d2.length; ++i) d2[i] = "x";
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.BadDescription.selector);
+        vm.expectRevert(ChessArena.BadDescription.selector);
         game.setProfile("a", string(d2));
     }
 
@@ -72,7 +72,7 @@ contract ProfilesTest is Test {
     function test_injectionAndSpoofingNamesRejected() public {
         bytes memory rawHigh = hex"656d6f6a69f09f8e"; // "emoji" + truncated UTF-8: raw high bytes
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.BadName.selector);
+        vm.expectRevert(ChessArena.BadName.selector);
         game.setProfile(string(rawHigh), "");
 
         string[11] memory bad = [
@@ -90,7 +90,7 @@ contract ProfilesTest is Test {
         ];
         for (uint256 i; i < bad.length; ++i) {
             vm.prank(alice);
-            vm.expectRevert(Chess4Profit.BadName.selector);
+            vm.expectRevert(ChessArena.BadName.selector);
             game.setProfile(bad[i], "");
         }
     }
@@ -99,7 +99,7 @@ contract ProfilesTest is Test {
         string[4] memory bad = ["line1\nline2", "a\u001b[31mred", "nul\u0000byte", "del\u007f"];
         for (uint256 i; i < bad.length; ++i) {
             vm.prank(alice);
-            vm.expectRevert(Chess4Profit.BadDescription.selector);
+            vm.expectRevert(ChessArena.BadDescription.selector);
             game.setProfile("ok", bad[i]);
         }
     }
@@ -121,7 +121,7 @@ contract ProfilesTest is Test {
             (string memory n,) = game.profileOf(alice);
             assertEq(n, string(raw));
         } else {
-            vm.expectRevert(Chess4Profit.BadName.selector);
+            vm.expectRevert(ChessArena.BadName.selector);
             game.setProfile(string(raw), "");
         }
     }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ChessEngine} from "./ChessEngine.sol";
 
-/// @title Chess4Profit
+/// @title ChessArena
 /// @notice Trustless wagered chess. Anyone locks a stake to open a game; anyone matching the stake
 ///         can join. Every move is validated on-chain, the winner is computed automatically and
 ///         takes the pot minus a protocol fee.
@@ -14,7 +14,7 @@ import {ChessEngine} from "./ChessEngine.sol";
 ///   makeMove(id, move) ...                 -> MoveMade, and finally GameFinished
 ///   resign(id) / claimTimeout(id)          -> alternative endings
 ///   cancelGame(id)                         -> creator reclaims stake if nobody joined
-contract Chess4Profit {
+contract ChessArena {
     using ChessEngine for ChessEngine.Position;
 
     // ------------------------------------------------------------------ config
@@ -41,6 +41,18 @@ contract Chess4Profit {
     ///         Descriptions: any UTF-8 without control bytes. Names are NOT unique: show the address with them.
     uint256 public constant MAX_NAME_BYTES = 32;
     uint256 public constant MAX_DESCRIPTION_BYTES = 280;
+    /// @notice Elo ratings by the FIDE Rating Regulations (Handbook B.02, 8.1.2 and 8.3): expected score from the
+    ///         FIDE table; a difference above 400 points counts as 400 for a player rated below 2650 and in full
+    ///         for one rated 2650 or more; K = 40 for a player's first 30 rated games, then 20, and 10 for good once
+    ///         they have reached 2400; change K * (S - E) rounded half away from zero. A game is rated only if both
+    ///         sides made at least one move. Unlike FIDE everyone starts rated, at INITIAL_RATING (there is no
+    ///         unrated phase), and ratings never drop below RATING_FLOOR.
+    uint256 public constant INITIAL_RATING = 1500;
+    uint256 public constant RATING_FLOOR = 100;
+    /// @dev FIDE table 8.1.2: expected score x 100 of a player rated D = 0..735 points above the opponent, one byte
+    ///      per D (above 735 it is 100). Generated and checked by scripts/elo_table.py.
+    bytes internal constant EXPECTED_SCORE =
+        hex"3232323233333333333333343434343434343535353535353535363636363636363737373737373738383838383838393939393939393a3a3a3a3a3a3a3a3b3b3b3b3b3b3b3c3c3c3c3c3c3c3c3d3d3d3d3d3d3d3e3e3e3e3e3e3e3e3f3f3f3f3f3f3f4040404040404040414141414141414242424242424242434343434343434344444444444444444545454545454545464646464646464647474747474747474748484848484848484949494949494949494a4a4a4a4a4a4a4a4a4b4b4b4b4b4b4b4b4b4c4c4c4c4c4c4c4c4c4d4d4d4d4d4d4d4d4d4e4e4e4e4e4e4e4e4e4e4f4f4f4f4f4f4f4f4f4f50505050505050505050515151515151515151515152525252525252525252525353535353535353535353545454545454545454545454555555555555555555555555565656565656565656565656565757575757575757575757575758585858585858585858585858585858595959595959595959595959595a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f6060606060606060606060606060606060606060606060606060606060606060606161616161616161616161616161616161616161616161616161616161616161616161616161616161616262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363";
 
     // ------------------------------------------------------------------ types
 
@@ -140,6 +152,15 @@ contract Chess4Profit {
 
     mapping(address => Profile) internal profiles;
 
+    /// @dev One slot per player. `games` = rated games played; a player with no rated games is at INITIAL_RATING.
+    struct Rating {
+        uint32 rating;
+        uint32 games;
+        bool reached2400; // K drops to 10 for good once a player has been rated 2400
+    }
+
+    mapping(address => Rating) internal ratings;
+
     /// @dev EIP-1153 transient storage: the same lock as a storage flag, without a cold slot write per call.
     bool private transient _locked;
 
@@ -163,6 +184,15 @@ contract Chess4Profit {
     );
     event Withdrawn(address indexed account, uint256 amount);
     event ProfileUpdated(address indexed bot, string name, string description);
+    event RatingsUpdated(
+        uint256 indexed gameId,
+        address indexed white,
+        uint256 whiteBefore,
+        uint256 whiteAfter,
+        address indexed black,
+        uint256 blackBefore,
+        uint256 blackAfter
+    );
 
     // ------------------------------------------------------------------ errors
 
@@ -373,6 +403,14 @@ contract Chess4Profit {
         emit ProfileUpdated(msg.sender, name, description);
     }
 
+    /// @notice A player's Elo rating, the number of rated games behind it, and the K-factor their next game uses.
+    function ratingOf(address player) external view returns (uint256 rating, uint256 ratedGames, uint256 k) {
+        Rating memory r = ratings[player];
+        rating = r.games == 0 ? INITIAL_RATING : r.rating;
+        ratedGames = r.games;
+        k = _kFactor(r);
+    }
+
     function profileOf(address bot) external view returns (string memory name, string memory description) {
         Profile storage p = profiles[bot];
         return (p.name, p.description);
@@ -510,6 +548,7 @@ contract Chess4Profit {
         st.status = Status.Finished;
         st.result = result;
         st.reason = reason;
+        _rate(gameId, g, result); // state only, no external calls, cannot revert: before any payout (CEI)
 
         uint256 pot = uint256(g.stake) * 2;
         uint256 fee = pot * FEE_BPS / 10_000;
@@ -530,6 +569,56 @@ contract Chess4Profit {
             _pay(payable(winner), payout);
         }
         _pay(FEE_RECIPIENT, fee);
+    }
+
+    // ------------------------------------------------------------------ ratings
+
+    /// @dev Update both players from their ratings BEFORE the game. Pure arithmetic on two storage slots: it can
+    ///      neither revert nor be influenced by anyone but the two players, so it can never stop a game from ending.
+    function _rate(uint256 gameId, Game storage g, Result result) internal {
+        if (g.st.plies < 2) return; // as in FIDE, a game in which a side never moved is not rated
+        address white = g.white;
+        address black = g.black;
+        Rating memory w = ratings[white];
+        Rating memory b = ratings[black];
+        uint256 rw = w.games == 0 ? INITIAL_RATING : w.rating;
+        uint256 rb = b.games == 0 ? INITIAL_RATING : b.rating;
+        uint256 scoreWhite = result == Result.WhiteWins ? 100 : result == Result.Draw ? 50 : 0;
+        // each side's own expectation: with the 2650 rule the two need not add up to 1
+        uint256 nw = _updated(w, rw, scoreWhite, _expectedScore(rw, rb));
+        uint256 nb = _updated(b, rb, 100 - scoreWhite, _expectedScore(rb, rw));
+        ratings[white] = w;
+        ratings[black] = b;
+        emit RatingsUpdated(gameId, white, rw, nw, black, rb, nb);
+    }
+
+    /// @dev Expected score x 100 of a player rated `ra` against `rb` (FIDE 8.1.2 with the 400-point rule of 8.3.1).
+    function _expectedScore(uint256 ra, uint256 rb) internal pure returns (uint256) {
+        uint256 d = ra >= rb ? ra - rb : rb - ra;
+        if (d > 400 && ra < 2650) d = 400;
+        uint256 h = d < EXPECTED_SCORE.length ? uint8(EXPECTED_SCORE[d]) : 100;
+        return ra >= rb ? h : 100 - h;
+    }
+
+    function _kFactor(Rating memory r) internal pure returns (uint256) {
+        if (r.games < 30) return 40;
+        return r.reached2400 ? 10 : 20;
+    }
+
+    /// @dev New rating = old + K * (score - expected), rounded half away from zero, floored at RATING_FLOOR and
+    ///      saturating at the uint32 limit; `score` and `expected` are x 100. Writes it into `r` and counts the game.
+    function _updated(Rating memory r, uint256 old, uint256 score, uint256 expected) internal pure returns (uint256 nr) {
+        uint256 k = _kFactor(r);
+        if (score >= expected) {
+            nr = old + (k * (score - expected) + 50) / 100;
+            if (nr > type(uint32).max) nr = type(uint32).max;
+        } else {
+            uint256 down = (k * (expected - score) + 50) / 100;
+            nr = old >= RATING_FLOOR + down ? old - down : RATING_FLOOR;
+        }
+        r.rating = uint32(nr);
+        if (r.games < type(uint32).max) ++r.games;
+        if (nr >= 2400) r.reached2400 = true;
     }
 
     /// @dev Push with bounded gas; on failure credit `pending` so a hostile receiver can never block a game's end.

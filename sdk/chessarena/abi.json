@@ -27,6 +27,19 @@
  },
  {
   "type": "function",
+  "name": "INITIAL_RATING",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "MAX_BASE_TIME",
   "inputs": [],
   "outputs": [
@@ -118,6 +131,19 @@
  },
  {
   "type": "function",
+  "name": "RATING_FLOOR",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "cancelGame",
   "inputs": [
    {
@@ -185,7 +211,7 @@
    {
     "name": "v",
     "type": "tuple",
-    "internalType": "struct Chess4Profit.GameView",
+    "internalType": "struct ChessArena.GameView",
     "components": [
      {
       "name": "id",
@@ -195,17 +221,17 @@
      {
       "name": "status",
       "type": "uint8",
-      "internalType": "enum Chess4Profit.Status"
+      "internalType": "enum ChessArena.Status"
      },
      {
       "name": "result",
       "type": "uint8",
-      "internalType": "enum Chess4Profit.Result"
+      "internalType": "enum ChessArena.Result"
      },
      {
       "name": "reason",
       "type": "uint8",
-      "internalType": "enum Chess4Profit.Reason"
+      "internalType": "enum ChessArena.Reason"
      },
      {
       "name": "white",
@@ -532,6 +558,35 @@
  },
  {
   "type": "function",
+  "name": "ratingOf",
+  "inputs": [
+   {
+    "name": "player",
+    "type": "address",
+    "internalType": "address"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "rating",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "ratedGames",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "k",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "resign",
   "inputs": [
    {
@@ -662,13 +717,13 @@
     "name": "result",
     "type": "uint8",
     "indexed": false,
-    "internalType": "enum Chess4Profit.Result"
+    "internalType": "enum ChessArena.Result"
    },
    {
     "name": "reason",
     "type": "uint8",
     "indexed": false,
-    "internalType": "enum Chess4Profit.Reason"
+    "internalType": "enum ChessArena.Reason"
    },
    {
     "name": "winner",
@@ -768,6 +823,55 @@
     "type": "string",
     "indexed": false,
     "internalType": "string"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "RatingsUpdated",
+  "inputs": [
+   {
+    "name": "gameId",
+    "type": "uint256",
+    "indexed": true,
+    "internalType": "uint256"
+   },
+   {
+    "name": "white",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "whiteBefore",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "whiteAfter",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "black",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "blackBefore",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "blackAfter",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
    }
   ],
   "anonymous": false

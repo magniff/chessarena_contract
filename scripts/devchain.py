@@ -3,7 +3,7 @@
     .venv/bin/python scripts/devchain.py
 
 The contract lands at the SDK's default 'local' address, so `Client.connect("local")` and
-`c4p play ...` work with no further configuration.
+`arena play ...` work with no further configuration.
 """
 from __future__ import annotations
 

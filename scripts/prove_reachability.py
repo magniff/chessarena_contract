@@ -30,7 +30,7 @@ def sites(s):
         body_close = close_of(s, body_open)
         out.append((name, "end", body_close))
         # `try f{value: x}(args) {`: the branch opens at the first `{` after a `)`, not at a call-option brace
-        for b in re.finditer(r"(try .*?\)\s*\{|catch[^{]*\{)", s[body_open:body_close]):
+        for b in re.finditer(r"(try .*?\)\s*\{|catch[^{]*\{)", s[body_open:body_close], re.S):
             o = body_open + b.end() - 1
             out.append((name, "try-branch" if b.group(0).startswith("try") else "catch-branch", close_of(s, o)))
     return out
@@ -53,13 +53,14 @@ for path, contract in FILES.items():
     shutil.copy(path, backup)
     try:
         for name, label, idx in sites(orig):
-            # a branch whose body is already `assert(false)` is one the proof claims is unreachable
-            branch_start = orig.rfind("{", 0, idx)
-            expect_unreached = label == "try-branch" and orig[branch_start:idx].strip("{ \n") == "assert(false);"
+            # a branch whose body is just `assert(false)` (comments aside) is one the proof claims is unreachable
+            body = orig[orig.rfind("{", 0, idx) + 1:idx]
+            body = re.sub(r"//[^\n]*", "", body).strip()
+            expect_unreached = label != "end" and body == "assert(false);"
             open(path, "w").write(orig[:idx] + "assert(false); " + orig[idx:])
             reached = run(contract, name)
             if expect_unreached:
-                print(f"{'UNEXPECTED' if reached else 'unreached'} {name} [{label}] (proved impossible)", flush=True)
+                print(f"{'UNEXPECTED' if reached else 'unreached '} {name} [{label}] (proved impossible)", flush=True)
                 if reached:
                     bad.append(f"{name} [{label}] is reachable but the proof says it is not")
             else:

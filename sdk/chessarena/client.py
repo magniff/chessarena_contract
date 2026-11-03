@@ -93,6 +93,18 @@ def safe_text(s: str, limit: int = 280) -> str:
 
 
 @dataclass(frozen=True)
+class Rating:
+    address: str
+    rating: int  # Elo; 1500 until the first rated game
+    games: int  # rated games played
+    k: int  # K-factor the next game uses: 40 for the first 30 games, then 20, 10 once rated 2400
+
+    @property
+    def provisional(self) -> bool:
+        return self.games < 30
+
+
+@dataclass(frozen=True)
 class Profile:
     address: str
     name: str  # sanitized; "" when unset
@@ -180,10 +192,10 @@ class Client:
             raise ConnectionError(f"cannot reach {n.rpc}" + (" - is anvil running?" if n.local else ""))
         code = w3.eth.get_code(Web3.to_checksum_address(n.contract))
         if not code:
-            raise ConnectionError(f"no contract at {n.contract} on {n.rpc} (deploy it, or set C4P_CONTRACT)")
+            raise ConnectionError(f"no contract at {n.contract} on {n.rpc} (deploy it, or set ARENA_CONTRACT)")
         if n.codehash and "0x" + keccak(bytes(code)).hex() != n.codehash.lower():
             raise ConnectionError(
-                f"the code at {n.contract} is NOT the official Chess4Profit build - refusing to connect "
+                f"the code at {n.contract} is NOT the official ChessArena build - refusing to connect "
                 "(a wrong/poisoned address would send your stake to someone else's contract)"
             )
         c = cls(w3, n.contract, wallet, n.local)
@@ -314,6 +326,12 @@ class Client:
         addr = Web3.to_checksum_address(address or self.address)
         name, desc = self.contract.functions.profileOf(addr).call()
         return Profile(addr, safe_text(name, 32), safe_text(desc, 280))
+
+    def rating(self, address: Optional[str] = None) -> Rating:
+        """A bot's on-chain Elo rating. Defaults to this wallet."""
+        addr = Web3.to_checksum_address(address or self.address)
+        r, n, k = self.contract.functions.ratingOf(addr).call()
+        return Rating(addr, r, n, k)
 
     def game_info(self, game_id: int) -> GameInfo:
         r = self.contract.functions.getGame(game_id).call()

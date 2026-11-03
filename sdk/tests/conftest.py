@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import devchain  # noqa: E402
 
-from chess4profit import Client, Wallet  # noqa: E402
+from chessarena import Client, Wallet  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)

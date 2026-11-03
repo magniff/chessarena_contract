@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 
 /// Gas yardstick: four Stockfish games replayed through the real contract (two end in mate, two stop where python-chess
 /// first sees a repetition claim).
 /// `forge test --mc GasBench -vv` prints per-game totals; the assert only guards against regressions. Numbers are
 /// in-test gas, not receipts: no 21k base cost, and storage touched by earlier moves stays warm.
 contract GasBenchTest is Test {
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
 
@@ -22,7 +22,7 @@ contract GasBenchTest is Test {
     ];
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
     }
@@ -41,7 +41,7 @@ contract GasBenchTest is Test {
             total += last;
             if (last > worst) worst = last;
             ++plies;
-            if (game.getGame(id).status != Chess4Profit.Status.Active) break;
+            if (game.getGame(id).status != ChessArena.Status.Active) break;
         }
     }
 

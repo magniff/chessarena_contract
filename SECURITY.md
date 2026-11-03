@@ -1,6 +1,6 @@
 # Security review: adversarial analysis
 
-Scope: `Chess4Profit.sol`, `ChessEngine.sol`, the Python SDK and the dashboard. Assumed adversaries: hostile
+Scope: `ChessArena.sol`, `ChessEngine.sol`, the Python SDK and the dashboard. Assumed adversaries: hostile
 players, spammers, contract wallets that misbehave on receiving ETH, block builders / sequencers that reorder,
 delay or censor transactions, mempool watchers, and anyone able to poison a bot's configuration.
 **This is a self-review with tests, not an audit.** Three passes were made; the second and third each found
@@ -119,7 +119,7 @@ the way `safe_text` does, and always show the address fragment next to a name.
 | # | Weakness | Fix | Test |
 |---|---|---|---|
 | S16 | **Resume replayed a partial history.** Attaching to a game searched backwards for the newest log chunk with *any* event of the game, not its creation; on a long chain a resumed bot replayed half a game and stalled on time. Invisible locally (a whole game fits one chunk). | search for `GameCreated` specifically | `test_resume_finds_creation_even_when_history_spans_many_chunks` |
-| S17 | **Unbounded log scans.** Scans went back to block 0: tens of thousands of RPC calls on a 300M-block L2 | floor at the deployment block (`C4P_DEPLOY_BLOCK`) | same |
+| S17 | **Unbounded log scans.** Scans went back to block 0: tens of thousands of RPC calls on a 300M-block L2 | floor at the deployment block (`ARENA_DEPLOY_BLOCK`) | same |
 
 ### Gas optimisation (pass 6)
 Goal: cut cost without changing any rule, any money path or the ABI. Receipts on anvil, same four Stockfish games
@@ -180,6 +180,7 @@ proofs (Halmos silently drops paths that revert for reasons other than an assert
 | `check_onlySideToMoveCanMove` | every caller address, both seats | nobody but the side to move can move |
 | `check_openGameRefundsExactly` | every stake, seat, delay, creator or stranger | an unjoined stake always returns exactly to its creator; strangers only after the window, and the refund still goes to the creator |
 | `check_joinWindowIsExact` | every stake and delay | joinable iff within the open window |
+| `check_ratingStepIsExact` | every old rating, game count, K state, result, and every expected score 0..100 | the Elo step never reverts, is the exact rounding of K·(S−E) unless the floor or uint32 limit stops it, points the right way, counts the game, keeps the 2400 flag sticky |
 
 **Not proved, and why.** `isAttacked` (and so `applyMove`, which uses it) could not be proved equivalent to the
 reference: Halmos explores paths one by one, every ray step branches in both implementations, and the rays
@@ -188,6 +189,30 @@ compose sequentially, so a central square has on the order of 20^8 paths (a corn
 differential tests and mutation testing above; a path-merging prover (Certora) is the tool to try next. Also
 open: contract-wide invariants over arbitrary call sequences (money conservation, lobby exactness); the Foundry
 invariant suite checks them by random sequences, a prover would check all of them.
+
+### On-chain Elo (pass 8)
+Ratings by the FIDE Rating Regulations (Handbook B.02, effective 1 March 2024, 400-point rule as amended
+1 October 2025), kept by the contract and updated in `_finish`, so every game end (mate, stalemate and the other
+automatic draws, resignation, timeout) rates both players in the same transaction. Followed: table 8.1.2 for
+the expected score; 8.3.1, a difference above 400 counts as 400 for a player below 2650 and in full from 2650
+(so the two expectations need not add up to 1, as in FIDE); 8.3.3 K-factors 40 / 20 / 10 (the 2400 step is
+permanent); 8.3.4 rounding half away from zero; 5.1 only games in which both sides moved. Deliberate departures:
+no unrated phase (7.1.4 would need rated opponents that a new platform does not have, so everyone starts at
+1500), a technical floor of 100 instead of 7.2.1's "below 1400 shown as unrated", the update applied per game
+rather than per rating period, and no under-18 K or K·n ≤ 700 cap (bots have no age; one game per update).
+
+| Concern | Design | Evidence |
+|---|---|---|
+| A rating update must never stop a game from ending (that would strand both stakes) | no external calls; saturating arithmetic everywhere (floor 100, uint32 limit, game count); the table is read only below its length (above 735: 1.00) | `check_ratingStepIsExact` proves the step never reverts for every input; `test_expectedScore_everyDifference` covers every difference; `testFuzz_updateIsSafe` over arbitrary stored states, including unreachable extremes |
+| Arithmetic correctness | integer only: expected score (hundredths) from a 736-byte copy of FIDE table 8.1.2; change = K·(S−E) rounded half away from zero | `scripts/elo_table.py --check` pins the bytes to the FIDE rows and the rows to Elo's normal curve (σ = 2000/7) everywhere except the six points where FIDE's own table departs from it, so a mistyped row fails; `test_expectedScore_everyDifference` checks every difference on both sides of 2650 against the FIDE rows written out separately; Halmos proves exact rounding (`|100·Δ − K·(S−E)| ≤ 50`) for every input; known answers include a case the logistic curve gets wrong, a half point, and the 2650 rule; `sdk/tests/test_elo.py` matches an independent Decimal reference from random states, 2650+ and draws included |
+| Ordering | ratings are written after the status change and before any payout (checks-effects-interactions) | reentrant receiver tests still fail to re-enter; `test_refusingWinnerIsStillRated` |
+| Forfeits | a game is rated only if both sides moved (`plies >= 2`) | `test_unrated_whenASideNeverMoved` (resign at 0 and 1 ply, flagged before moving) |
+| Rating farming with a second wallet (Sybil) | **not preventable on-chain**: addresses are free. Each farmed game costs the 2.5% fee on its stake and two moves of gas; gains shrink to ~2 points per game against a much weaker opponent | documented for users; interfaces should show rated games and opponent diversity next to a rating |
+| Storage / ABI | one slot per player (`ratings`, appended after existing storage); new view `ratingOf`, new event `RatingsUpdated`, emitted just before `GameFinished` | `test_layout`, SDK event tests |
+
+Cost (resignation after two plies, rating contract vs. the one without ratings): ordinary moves unchanged
+(97.2k mean); the game-ending move costs +53.4k the first time two players are rated (two new storage slots),
++19.3k afterwards; a whole game +0.2% (~12.2M). Contract size 22.3 KB (2.2 KB under the limit).
 
 ## Static analysis (Slither 0.11, 74 detectors)
 No reentrancy, unchecked-call, arbitrary-send, delegatecall, tx.origin, selfdestruct or access-control findings.
@@ -244,7 +269,7 @@ for coarse clocks; ordering analysed above; Slither clean of high/medium finding
 ## Release checklist
 1. Set `FEE_RECIPIENT` (the deploy script refuses the placeholder off-localnet).
 2. `forge build && python scripts/export_abi.py` (refreshes ABI + official code hash), then deploy.
-3. Put the deployed address and code hash into `sdk/chess4profit/networks.py` (or `C4P_CONTRACT` / `C4P_CODEHASH`).
+3. Put the deployed address and code hash into `sdk/chessarena/networks.py` (or `ARENA_CONTRACT` / `ARENA_CODEHASH`).
 4. Independent audit; testnet soak with `scripts/fuzz_vs_pythonchess.py` and the dashboard.
 5. Right after deploying, check the chain runs Cancun (the reentrancy lock uses transient storage):
    `cast call <address> "withdraw()" --rpc-url <rpc>` must revert with custom error `0xd0d04f60`

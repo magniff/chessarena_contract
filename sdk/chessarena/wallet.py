@@ -11,13 +11,13 @@ from typing import Optional, Union
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
-DEFAULT_PATH = Path.home() / ".chess4profit" / "wallet.json"
+DEFAULT_PATH = Path.home() / ".chessarena" / "wallet.json"
 
 
 def _password(password: Optional[str], confirm: bool = False) -> str:
     if password is not None:
         return password
-    env = os.environ.get("C4P_WALLET_PASSWORD")
+    env = os.environ.get("ARENA_WALLET_PASSWORD")
     if env is not None:
         return env
     if sys.stdin.isatty():
@@ -25,7 +25,7 @@ def _password(password: Optional[str], confirm: bool = False) -> str:
         if confirm and getpass.getpass("repeat password: ") != p:
             raise ValueError("passwords differ")
         return p
-    raise ValueError("no wallet password: pass password=..., or set C4P_WALLET_PASSWORD")
+    raise ValueError("no wallet password: pass password=..., or set ARENA_WALLET_PASSWORD")
 
 
 class Wallet:
@@ -52,7 +52,7 @@ class Wallet:
         return cls(Account.from_key(key))
 
     @classmethod
-    def from_env(cls, var: str = "C4P_PRIVATE_KEY") -> "Wallet":
+    def from_env(cls, var: str = "ARENA_PRIVATE_KEY") -> "Wallet":
         key = os.environ.get(var)
         if not key:
             raise ValueError(f"environment variable {var} is not set")
@@ -87,7 +87,7 @@ class Wallet:
 
     @classmethod
     def load_or_create(cls, path: Union[str, Path] = DEFAULT_PATH, password: Optional[str] = None) -> "Wallet":
-        """The 'just give me a wallet' call: loads ~/.chess4profit/wallet.json, creating it on first use."""
+        """The 'just give me a wallet' call: loads ~/.chessarena/wallet.json, creating it on first use."""
         if cls.exists(path):
             return cls.load(path, password)
         w = cls.create()

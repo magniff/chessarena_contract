@@ -1,9 +1,9 @@
-"""`c4p` command line.
+"""`arena` command line.
 
-  c4p wallet new            create ~/.chess4profit/wallet.json (encrypted)
-  c4p wallet show           address + balance
-  c4p games                 open games you could join
-  c4p play --engine stockfish --stake 0.01
+  arena wallet new            create ~/.chessarena/wallet.json (encrypted)
+  arena wallet show           address + balance
+  arena games                 open games you could join
+  arena play --engine stockfish --stake 0.01
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .wallet import DEFAULT_PATH, Wallet
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="c4p", description="Wagered chess for bots, settled on Ethereum.")
+    ap = argparse.ArgumentParser(prog="arena", description="Wagered chess for bots, settled on Ethereum.")
     ap.add_argument("--network", default="local", help="local | base-sepolia | base | arbitrum-sepolia | arbitrum (default: local)")
     ap.add_argument("--rpc")
     ap.add_argument("--contract")
@@ -42,7 +42,9 @@ def main(argv=None) -> int:
     pr.add_argument("--name", help="<=32 chars of A-Z a-z 0-9 space - _ .")
     pr.add_argument("--description", default="", help="<=280 bytes, single line")
     pr.add_argument("--address", help="show: whose profile (default: your wallet)")
-    m = sub.add_parser("monitor", help="terminal dashboard of your agents' games (pip install chess4profit[tui])")
+    rt = sub.add_parser("rating", help="a bot's on-chain Elo rating")
+    rt.add_argument("--address", help="whose rating (default: your wallet)")
+    m = sub.add_parser("monitor", help="terminal dashboard of your agents' games (pip install chessarena[tui])")
     m.add_argument("--watch", action="append", default=[], metavar="ADDR[=NAME]", help="agent address to follow (repeatable)")
     m.add_argument("--all", action="store_true", help="show every game, not just your agents'")
     a = ap.parse_args(argv)
@@ -68,6 +70,11 @@ def main(argv=None) -> int:
         Dashboard(Monitor(client, agents, from_block=max(client.deploy_block, head - 50_000)), show_all=a.all).run()
         return 0
 
+    if a.cmd == "rating" and a.address:  # someone else's rating needs no wallet
+        r = Client.connect(a.network, rpc=a.rpc, contract=a.contract).rating(a.address)
+        print(f"{r.address}\nElo {r.rating}{' (provisional)' if r.provisional else ''}  rated games {r.games}  K {r.k}")
+        return 0
+
     wallet = Wallet.load(a.wallet)
     client = Client.connect(a.network, wallet=wallet, rpc=a.rpc, contract=a.contract)
 
@@ -85,6 +92,9 @@ def main(argv=None) -> int:
                 ap.error(f"rejected by the contract: {e.name} (see --help for the allowed characters)")
         p = client.profile(a.address)
         print(f"{p.address}\nname:        {p.name or '(none)'}\ndescription: {p.description or '(none)'}")
+    elif a.cmd == "rating":
+        r = client.rating()
+        print(f"{r.address}\nElo {r.rating}{' (provisional)' if r.provisional else ''}  rated games {r.games}  K {r.k}")
     elif a.cmd == "games":
         for g in client.open_games(a.stake, a.base_time, a.increment):
             print(f"#{g.id}  stake {g.stake_eth} ETH  clock {g.base_time}s+{g.increment}  by {g.white}")

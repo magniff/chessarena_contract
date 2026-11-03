@@ -58,6 +58,8 @@ class AgentStats:
     locked: int = 0           # stake currently in unfinished games
     won_wei: int = 0          # payouts received from finished games
     staked_wei: int = 0       # stakes put into finished games
+    rating: Optional[int] = None  # on-chain Elo (None until read)
+    rated_games: int = 0
 
     @property
     def pnl_games(self) -> int:
@@ -85,6 +87,11 @@ class Monitor:
             self._labels[a.lower()] = name
             self.agents[a.lower()] = AgentStats(a, name or "", balance=client.w3.eth.get_balance(a))
             self.agents[a.lower()].start_balance = self.agents[a.lower()].balance
+            try:
+                r = client.rating(a)
+                self.agents[a.lower()].rating, self.agents[a.lower()].rated_games = r.rating, r.games
+            except Exception:  # noqa: BLE001  - an older deployment without ratings: just don't show them
+                pass
         self.games: Dict[int, GameState] = {}
         self.fee_recipient = client.contract.functions.FEE_RECIPIENT().call()
         self.fee_start = client.w3.eth.get_balance(self.fee_recipient)
@@ -169,6 +176,12 @@ class Monitor:
         elif isinstance(e, ev.GameFinished):
             g.status, g.result, g.reason = Status.FINISHED, e.result, e.reason.name
             self._settle(g, e)
+        elif isinstance(e, ev.RatingsUpdated):
+            for player, after in ((e.white, e.white_after), (e.black, e.black_after)):
+                a = self.agents.get(player.lower())
+                if a:
+                    a.rating = after
+                    a.rated_games += 1
         self._account_gas(e)
         if self.on_event:
             self.on_event(e, g)

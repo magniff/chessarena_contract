@@ -1,4 +1,4 @@
-"""Terminal dashboard for your agents' games.   c4p monitor   (needs: pip install chess4profit[tui])"""
+"""Terminal dashboard for your agents' games.   arena monitor   (needs: pip install chessarena[tui])"""
 from __future__ import annotations
 
 import time
@@ -58,7 +58,7 @@ def render_board(g: Optional[GameState], flip: bool = False) -> Text:
 
 
 class Dashboard(App):
-    TITLE = "Chess4Profit"
+    TITLE = "ChessArena"
     CSS = """
     Screen { layout: vertical; }
     #head { height: auto; padding: 0 1; background: $boost; }
@@ -103,7 +103,7 @@ class Dashboard(App):
 
     def on_mount(self) -> None:
         a = self.query_one("#agents", DataTable)
-        a.add_columns("Agent", "Balance", "Δ balance", "Gas paid", "Gas used", "Txs", "W/D/L", "In play", "Games net")
+        a.add_columns("Agent", "Elo", "Balance", "Δ balance", "Gas paid", "Gas used", "Txs", "W/D/L", "In play", "Games net")
         g = self.query_one("#games", DataTable)
         g.add_columns("#", "Status", "White", "Black", "Stake", "Plies", "Last", "Clock", "Result")
         self.poll()
@@ -126,7 +126,7 @@ class Dashboard(App):
     def redraw(self, err: Optional[Exception] = None) -> None:
         m = self.mon
         head = Text.assemble(
-            ("♞ Chess4Profit ", "bold"), (f"block {m.block}  ", "dim"),
+            ("♞ ChessArena ", "bold"), (f"block {m.block}  ", "dim"),
             ("fees collected ", "dim"), (f"{eth(m.fees_collected)} ETH  ", "bold yellow"),
             ("held in contract ", "dim"), (f"{eth(m.locked_total)} ETH  ", "bold"),
             (f"games {sum(1 for g in m.games.values() if g.active)} live / {len(m.games)} total", "dim"),
@@ -144,7 +144,9 @@ class Dashboard(App):
         t.clear()
         for a in sorted(self.mon.agents.values(), key=lambda x: self.mon.name(x.address).lower()):
             t.add_row(
-                Text(self.mon.name(a.address), style="bold cyan"), eth(a.balance), signed_eth(a.delta),
+                Text(self.mon.name(a.address), style="bold cyan"),
+                "—" if a.rating is None else (f"{a.rating}?" if a.rated_games < 30 else str(a.rating)),
+                eth(a.balance), signed_eth(a.delta),
                 Text(eth(a.gas_wei, 6), style="magenta"), f"{a.gas_used:,}", str(a.tx_count),
                 Text.assemble((str(a.wins), "green"), "/", (str(a.draws), "yellow"), "/", (str(a.losses), "red")),
                 eth(a.locked) if a.locked else "—", signed_eth(a.pnl_games),
@@ -234,6 +236,10 @@ class Dashboard(App):
             elif isinstance(e, ev.GameFinished):
                 who = f"{n(e.winner)} wins {eth(e.payout, 4)} ETH" if e.winner else "draw, pot split"
                 msg = f"[bold magenta]#{e.game_id}[/] finished: {e.reason.name.lower().replace('_', ' ')} — {who} (fee {eth(e.fee, 4)})"
+            elif isinstance(e, ev.RatingsUpdated):
+                d = lambda before, after: f"{before}→{after} ({after - before:+d})"  # noqa: E731
+                msg = (f"[cyan]#{e.game_id}[/] Elo: {n(e.white)} {d(e.white_before, e.white_after)}, "
+                       f"{n(e.black)} {d(e.black_before, e.black_after)}")
             else:
                 msg = f"#{e.game_id} {type(e).__name__}"
             if self.show_all or (g and self.mon.mine(g)):

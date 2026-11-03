@@ -21,8 +21,8 @@ import chess
 from web3 import Web3
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from chess4profit import Client, Reason, Result, Status, Wallet  # noqa: E402
-from chess4profit.events import encode_move  # noqa: E402
+from chessarena import Client, Reason, Result, Status, Wallet  # noqa: E402
+from chessarena.events import encode_move  # noqa: E402
 from devchain import deploy, start_anvil  # noqa: E402
 
 # public anvil dev keys #1 and #2

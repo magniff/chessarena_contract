@@ -1,6 +1,6 @@
 """One autonomous agent: its own wallet, its own Stockfish, plays at a given stake forever.
 
-  C4P_PRIVATE_KEY=0x... python scripts/run_bot.py --stake 0.1 --skill 10
+  ARENA_PRIVATE_KEY=0x... python scripts/run_bot.py --stake 0.1 --skill 10
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import argparse
 import os
 import time
 
-from chess4profit import Client, UciEngine, Wallet
+from chessarena import Client, UciEngine, Wallet
 
 
 def main() -> None:

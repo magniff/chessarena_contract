@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 import {FenLib} from "./FenLib.sol";
 
 /// Transaction ordering is not guaranteed: two pending transactions can land in either order, a builder can
@@ -10,14 +10,14 @@ import {FenLib} from "./FenLib.sol";
 /// suite executes BOTH orders and checks that (a) the loser of the race only loses gas, (b) money is
 /// conserved, (c) the game can't end twice or pay twice, and (d) who wins never depends on the order.
 contract OrderingTest is Test {
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address carol = makeAddr("carol");
     uint256 constant STAKE = 1 ether;
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(carol, 100 ether);
@@ -29,9 +29,9 @@ contract OrderingTest is Test {
 
     function _locked() internal view returns (uint256 total) {
         for (uint256 id = 1; id < game.nextGameId(); ++id) {
-            Chess4Profit.GameView memory v = game.getGame(id);
-            if (v.status == Chess4Profit.Status.Open) total += v.stake;
-            else if (v.status == Chess4Profit.Status.Active) total += 2 * v.stake;
+            ChessArena.GameView memory v = game.getGame(id);
+            if (v.status == ChessArena.Status.Open) total += v.stake;
+            else if (v.status == ChessArena.Status.Active) total += 2 * v.stake;
         }
         total += game.pending(alice) + game.pending(bob) + game.pending(carol) + game.pending(game.FEE_RECIPIENT());
     }
@@ -61,7 +61,7 @@ contract OrderingTest is Test {
             vm.prank(first);
             game.joinGame{value: STAKE}(id);
             vm.prank(second);
-            vm.expectRevert(Chess4Profit.NotOpen.selector);
+            vm.expectRevert(ChessArena.NotOpen.selector);
             game.joinGame{value: STAKE}(id);
             assertEq(game.getGame(id).black, first);
             _assertConserved();
@@ -77,7 +77,7 @@ contract OrderingTest is Test {
         vm.prank(alice);
         game.cancelGame(id);
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.joinGame{value: STAKE}(id);
         _assertConserved();
 
@@ -86,9 +86,9 @@ contract OrderingTest is Test {
         vm.prank(bob);
         game.joinGame{value: STAKE}(id);
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.cancelGame(id);
-        assertEq(uint8(game.getGame(id).status), uint8(Chess4Profit.Status.Active));
+        assertEq(uint8(game.getGame(id).status), uint8(ChessArena.Status.Active));
         _assertConserved();
     }
 
@@ -99,7 +99,7 @@ contract OrderingTest is Test {
         uint256 edge = block.timestamp + game.OPEN_WINDOW();
         vm.warp(edge); // still joinable, not yet sweepable
         vm.prank(carol);
-        vm.expectRevert(Chess4Profit.NotCreator.selector);
+        vm.expectRevert(ChessArena.NotCreator.selector);
         game.cancelGame(id);
         vm.prank(bob);
         game.joinGame{value: STAKE}(id);
@@ -107,7 +107,7 @@ contract OrderingTest is Test {
         id = _open();
         vm.warp(block.timestamp + game.OPEN_WINDOW() + 1); // expired: the join is refused in either order
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.Expired.selector);
+        vm.expectRevert(ChessArena.Expired.selector);
         game.joinGame{value: STAKE}(id);
         vm.prank(carol);
         game.cancelGame(id);
@@ -121,13 +121,13 @@ contract OrderingTest is Test {
         // sweep first
         game.sweepExpired(t, 10);
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.joinGame{value: STAKE}(id);
         // join first (on a fresh expired game): join is refused, sweep then works
         id = _open();
         vm.warp(block.timestamp + game.OPEN_WINDOW() + 1);
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.Expired.selector);
+        vm.expectRevert(ChessArena.Expired.selector);
         game.joinGame{value: STAKE}(id);
         assertEq(game.sweepExpired(t, 10), 1);
         _assertConserved();
@@ -142,10 +142,10 @@ contract OrderingTest is Test {
         vm.prank(alice);
         game.makeMove(id, FenLib.mv("e2e4"));
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NotYourTurn.selector);
+        vm.expectRevert(ChessArena.NotYourTurn.selector);
         game.makeMove(id, FenLib.mv("d2d4"));
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NotYourTurn.selector);
+        vm.expectRevert(ChessArena.NotYourTurn.selector);
         game.makeMove(id, FenLib.mv("e2e4")); // replay
     }
 
@@ -154,7 +154,7 @@ contract OrderingTest is Test {
         uint256 id = _active(); // white (alice) to move, 300s
         vm.warp(block.timestamp + 300); // last valid second
         vm.prank(carol);
-        vm.expectRevert(Chess4Profit.NotTimedOut.selector);
+        vm.expectRevert(ChessArena.NotTimedOut.selector);
         game.claimTimeout(id);
         vm.prank(alice);
         game.makeMove(id, FenLib.mv("e2e4"));
@@ -162,11 +162,11 @@ contract OrderingTest is Test {
         id = _active();
         vm.warp(block.timestamp + 301);
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.TurnTimedOut.selector);
+        vm.expectRevert(ChessArena.TurnTimedOut.selector);
         game.makeMove(id, FenLib.mv("e2e4"));
         vm.prank(carol);
         game.claimTimeout(id);
-        assertEq(uint8(game.getGame(id).result), uint8(Chess4Profit.Result.BlackWins));
+        assertEq(uint8(game.getGame(id).result), uint8(ChessArena.Result.BlackWins));
         _assertConserved();
     }
 
@@ -185,16 +185,16 @@ contract OrderingTest is Test {
                 vm.prank(bob);
                 game.makeMove(id, FenLib.mv("d8h4")); // mate lands first
                 vm.prank(alice);
-                vm.expectRevert(Chess4Profit.NotActive.selector);
+                vm.expectRevert(ChessArena.NotActive.selector);
                 game.resign(id);
             } else {
                 vm.prank(alice);
                 game.resign(id); // resignation lands first
                 vm.prank(bob);
-                vm.expectRevert(Chess4Profit.NotActive.selector);
+                vm.expectRevert(ChessArena.NotActive.selector);
                 game.makeMove(id, FenLib.mv("d8h4"));
             }
-            assertEq(uint8(game.getGame(id).result), uint8(Chess4Profit.Result.BlackWins));
+            assertEq(uint8(game.getGame(id).result), uint8(ChessArena.Result.BlackWins));
             assertEq(bob.balance, bobBefore + _net(), "paid exactly once, same amount either order");
             _assertConserved();
         }
@@ -209,16 +209,16 @@ contract OrderingTest is Test {
                 vm.prank(alice);
                 game.resign(id);
                 vm.prank(bob);
-                vm.expectRevert(Chess4Profit.NotActive.selector);
+                vm.expectRevert(ChessArena.NotActive.selector);
                 game.claimTimeout(id);
             } else {
                 vm.prank(bob);
                 game.claimTimeout(id);
                 vm.prank(alice);
-                vm.expectRevert(Chess4Profit.NotActive.selector);
+                vm.expectRevert(ChessArena.NotActive.selector);
                 game.resign(id);
             }
-            assertEq(uint8(game.getGame(id).result), uint8(Chess4Profit.Result.BlackWins));
+            assertEq(uint8(game.getGame(id).result), uint8(ChessArena.Result.BlackWins));
             _assertConserved();
         }
     }
@@ -227,12 +227,12 @@ contract OrderingTest is Test {
     /// cannot be made to lose MORE than the timeout they already incurred, and nothing can be extracted.
     function test_delayedMove_revertsCleanly_noStateChange() public {
         uint256 id = _active();
-        Chess4Profit.GameView memory before_ = game.getGame(id);
+        ChessArena.GameView memory before_ = game.getGame(id);
         vm.warp(block.timestamp + 301);
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.TurnTimedOut.selector);
+        vm.expectRevert(ChessArena.TurnTimedOut.selector);
         game.makeMove(id, FenLib.mv("e2e4"));
-        Chess4Profit.GameView memory after_ = game.getGame(id);
+        ChessArena.GameView memory after_ = game.getGame(id);
         assertEq(after_.plies, before_.plies);
         assertEq(after_.whiteTime, before_.whiteTime);
         assertEq(after_.lastMoveAt, before_.lastMoveAt);
@@ -240,7 +240,7 @@ contract OrderingTest is Test {
 
     function test_withdrawTwice_secondReverts() public {
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NothingToWithdraw.selector);
+        vm.expectRevert(ChessArena.NothingToWithdraw.selector);
         game.withdraw();
     }
 
@@ -277,11 +277,11 @@ contract OrderingTest is Test {
             }
             _assertConserved();
         }
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         // terminal lobby states only: either someone is seated (Active) or the stake went home (Cancelled)
-        assertTrue(v.status == Chess4Profit.Status.Active || v.status == Chess4Profit.Status.Cancelled
-            || v.status == Chess4Profit.Status.Open);
-        if (v.status == Chess4Profit.Status.Active) {
+        assertTrue(v.status == ChessArena.Status.Active || v.status == ChessArena.Status.Cancelled
+            || v.status == ChessArena.Status.Open);
+        if (v.status == ChessArena.Status.Active) {
             assertTrue(v.black == bob || v.black == carol);
             assertEq(v.white, alice);
         }

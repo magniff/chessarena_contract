@@ -2,14 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {Test, Vm} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 import {ChessEngine} from "../src/ChessEngine.sol";
 
 /// The storage layout is packed for gas (see `Game` / `State`). These tests pin what that packing must never
 /// change: which slots a move may write, that the packed position round-trips exactly, that the creator's seat
 /// logic is right for both colours, and the stake bound.
 contract StorageTest is Test {
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address carol = makeAddr("carol");
@@ -18,7 +18,7 @@ contract StorageTest is Test {
     uint256 constant POSITION_COUNT_SLOT = 2; // `positionCount` mapping
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(carol, 100 ether);
@@ -84,7 +84,7 @@ contract StorageTest is Test {
             game.makeMove(id, m);
 
             assertEq(keccak256(abi.encode(game.getPosition(id))), keccak256(abi.encode(p)), "position");
-            Chess4Profit.GameView memory v = game.getGame(id);
+            ChessArena.GameView memory v = game.getGame(id);
             assertEq(v.plies, ply);
             assertEq(v.whiteToMove, p.whiteToMove);
             assertEq(v.white, white);
@@ -92,7 +92,7 @@ contract StorageTest is Test {
             assertEq(v.stake, 1 ether);
             assertEq(v.increment, 2);
             assertEq(v.lastMoveAt, block.timestamp);
-            if (v.status != Chess4Profit.Status.Active) break;
+            if (v.status != ChessArena.Status.Active) break;
         }
     }
 
@@ -101,16 +101,16 @@ contract StorageTest is Test {
     function test_creatorAsBlack_seatsAndEvents() public {
         vm.prank(alice);
         uint256 id = game.createGame{value: 1 ether}(300, 2, false);
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         assertEq(v.white, alice); // creator listed first while open, whatever colour they chose
         assertEq(v.black, address(0));
 
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.SelfJoin.selector);
+        vm.expectRevert(ChessArena.SelfJoin.selector);
         game.joinGame{value: 1 ether}(id);
 
         vm.expectEmit(true, true, true, true);
-        emit Chess4Profit.GameStarted(id, bob, alice);
+        emit ChessArena.GameStarted(id, bob, alice);
         vm.prank(bob);
         game.joinGame{value: 1 ether}(id);
         v = game.getGame(id);
@@ -118,7 +118,7 @@ contract StorageTest is Test {
         assertEq(v.black, alice);
 
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NotYourTurn.selector);
+        vm.expectRevert(ChessArena.NotYourTurn.selector);
         game.makeMove(id, ChessEngine.encode(12, 28, 0));
         vm.prank(bob);
         game.makeMove(id, ChessEngine.encode(12, 28, 0));
@@ -131,7 +131,7 @@ contract StorageTest is Test {
         vm.stopPrank();
 
         vm.prank(carol);
-        vm.expectRevert(Chess4Profit.NotCreator.selector);
+        vm.expectRevert(ChessArena.NotCreator.selector);
         game.cancelGame(a);
 
         uint256 before = alice.balance;
@@ -144,7 +144,7 @@ contract StorageTest is Test {
         vm.prank(carol);
         assertEq(game.sweepExpired(game.lobbyKey(1 ether, 300, 2), 10), 1);
         assertEq(alice.balance, before + 2 ether);
-        assertEq(uint8(game.getGame(b).status), uint8(Chess4Profit.Status.Cancelled));
+        assertEq(uint8(game.getGame(b).status), uint8(ChessArena.Status.Cancelled));
         assertEq(address(game).balance, 0);
     }
 
@@ -153,8 +153,8 @@ contract StorageTest is Test {
         uint256 before = alice.balance;
         vm.prank(bob);
         game.resign(id);
-        Chess4Profit.GameView memory v = game.getGame(id);
-        assertEq(uint8(v.result), uint8(Chess4Profit.Result.BlackWins));
+        ChessArena.GameView memory v = game.getGame(id);
+        assertEq(uint8(v.result), uint8(ChessArena.Result.BlackWins));
         assertEq(alice.balance, before + 2 ether - 2 ether * game.FEE_BPS() / 10_000);
     }
 
@@ -164,7 +164,7 @@ contract StorageTest is Test {
         uint256 max = type(uint96).max;
         vm.deal(alice, max + 1);
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.BadStake.selector);
+        vm.expectRevert(ChessArena.BadStake.selector);
         game.createGame{value: max + 1}(300, 2, true);
         vm.prank(alice);
         uint256 id = game.createGame{value: max}(300, 2, true);

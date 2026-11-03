@@ -3,14 +3,14 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 import {ChessEngine} from "../src/ChessEngine.sol";
 
 /// Foundry drives this handler with random call sequences (see [invariant] in foundry.toml); after every call the
 /// invariants below are re-checked. Every action is attempted by a random actor, in a random order, with random
 /// time travel in between, which is exactly what a hostile, reordering network looks like to the contract.
 contract Handler is Test {
-    Chess4Profit public game;
+    ChessArena public game;
     address[3] public actors;
     uint256[2] public stakes = [uint256(0.001 ether), 0.002 ether];
     uint32 constant BASE = 120;
@@ -19,7 +19,7 @@ contract Handler is Test {
     uint256 public totalFeePaid;
     uint256 public settledPots;
 
-    constructor(Chess4Profit g) {
+    constructor(ChessArena g) {
         game = g;
         actors = [makeAddr("a"), makeAddr("b"), makeAddr("c")];
         for (uint256 i; i < 3; ++i) vm.deal(actors[i], 1_000_000 ether);
@@ -85,8 +85,8 @@ contract Handler is Test {
     function move(uint256 who, uint256 g, uint256 pick, uint16 garbage) external {
         if (game.nextGameId() == 1) return;
         uint256 id = _anyGame(g);
-        Chess4Profit.GameView memory v = game.getGame(id);
-        if (v.status != Chess4Profit.Status.Active) return;
+        ChessArena.GameView memory v = game.getGame(id);
+        if (v.status != ChessArena.Status.Active) return;
         address mover = pick % 8 == 0 ? _actor(who) : (v.whiteToMove ? v.white : v.black);
         uint16 m = garbage;
         if (pick % 8 != 1) {
@@ -100,20 +100,20 @@ contract Handler is Test {
 }
 
 contract InvariantsTest is StdInvariant, Test {
-    Chess4Profit game;
+    ChessArena game;
     Handler h;
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         h = new Handler(game);
         targetContract(address(h));
     }
 
     function _locked() internal view returns (uint256 total) {
         for (uint256 id = 1; id < game.nextGameId(); ++id) {
-            Chess4Profit.GameView memory v = game.getGame(id);
-            if (v.status == Chess4Profit.Status.Open) total += v.stake;
-            else if (v.status == Chess4Profit.Status.Active) total += 2 * v.stake;
+            ChessArena.GameView memory v = game.getGame(id);
+            if (v.status == ChessArena.Status.Open) total += v.stake;
+            else if (v.status == ChessArena.Status.Active) total += 2 * v.stake;
         }
     }
 
@@ -131,7 +131,7 @@ contract InvariantsTest is StdInvariant, Test {
     function invariant_lobbyIndexExact() public view {
         uint256 openCount;
         for (uint256 id = 1; id < game.nextGameId(); ++id) {
-            if (game.getGame(id).status == Chess4Profit.Status.Open) ++openCount;
+            if (game.getGame(id).status == ChessArena.Status.Open) ++openCount;
         }
         uint256 inIndex = game.openGameCount(game.lobbyKey(0.001 ether, 120, 1))
             + game.openGameCount(game.lobbyKey(0.002 ether, 120, 1));
@@ -142,13 +142,13 @@ contract InvariantsTest is StdInvariant, Test {
     /// distinct players and clocks within bounds, and nothing is ever "half settled".
     function invariant_gameStatesConsistent() public view {
         for (uint256 id = 1; id < game.nextGameId(); ++id) {
-            Chess4Profit.GameView memory v = game.getGame(id);
-            if (v.status == Chess4Profit.Status.Finished) {
-                assertTrue(v.result != Chess4Profit.Result.None && v.reason != Chess4Profit.Reason.None);
+            ChessArena.GameView memory v = game.getGame(id);
+            if (v.status == ChessArena.Status.Finished) {
+                assertTrue(v.result != ChessArena.Result.None && v.reason != ChessArena.Reason.None);
             } else {
-                assertTrue(v.result == Chess4Profit.Result.None && v.reason == Chess4Profit.Reason.None);
+                assertTrue(v.result == ChessArena.Result.None && v.reason == ChessArena.Reason.None);
             }
-            if (v.status == Chess4Profit.Status.Active) {
+            if (v.status == ChessArena.Status.Active) {
                 assertTrue(v.white != v.black && v.white != address(0) && v.black != address(0));
                 assertLe(v.whiteTime, game.MAX_BASE_TIME());
                 assertLe(v.blackTime, game.MAX_BASE_TIME());

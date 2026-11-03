@@ -1,5 +1,5 @@
 """A tiny UCI engine so the SDK runs without Stockfish. Greedy 1-ply: mates > captures > checks > random.
-Run as:  python -m chess4profit.randomfish   (then speak UCI on stdin)"""
+Run as:  python -m chessarena.randomfish   (then speak UCI on stdin)"""
 from __future__ import annotations
 
 import random
@@ -38,7 +38,7 @@ def main() -> None:
             continue
         cmd = parts[0]
         if cmd == "uci":
-            print("id name randomfish\nid author chess4profit\nuciok", flush=True)
+            print("id name randomfish\nid author chessarena\nuciok", flush=True)
         elif cmd == "isready":
             print("readyok", flush=True)
         elif cmd == "ucinewgame":

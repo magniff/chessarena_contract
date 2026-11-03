@@ -2,18 +2,18 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 import {ChessEngine} from "../src/ChessEngine.sol";
 import {FenLib} from "./FenLib.sol";
 
 /// @dev Winner that tries to re-enter every state-changing entrypoint from its receive hook.
 contract ReentrantWinner {
-    Chess4Profit public game;
+    ChessArena public game;
     uint256 public gameId;
     uint256 public attempts;
     uint256 public succeeded;
 
-    function setUp(Chess4Profit g) external {
+    function setUp(ChessArena g) external {
         game = g;
     }
 
@@ -33,12 +33,12 @@ contract ReentrantWinner {
 
     receive() external payable {
         bytes[6] memory calls = [
-            abi.encodeCall(Chess4Profit.makeMove, (gameId, uint16(0))),
-            abi.encodeCall(Chess4Profit.resign, (gameId)),
-            abi.encodeCall(Chess4Profit.claimTimeout, (gameId)),
-            abi.encodeCall(Chess4Profit.cancelGame, (gameId)),
-            abi.encodeCall(Chess4Profit.withdraw, ()),
-            abi.encodeCall(Chess4Profit.joinGame, (gameId))
+            abi.encodeCall(ChessArena.makeMove, (gameId, uint16(0))),
+            abi.encodeCall(ChessArena.resign, (gameId)),
+            abi.encodeCall(ChessArena.claimTimeout, (gameId)),
+            abi.encodeCall(ChessArena.cancelGame, (gameId)),
+            abi.encodeCall(ChessArena.withdraw, ()),
+            abi.encodeCall(ChessArena.joinGame, (gameId))
         ];
         for (uint256 i; i < calls.length; ++i) {
             ++attempts;
@@ -50,9 +50,9 @@ contract ReentrantWinner {
 
 /// @dev Winner whose receive burns all the gas it is given.
 contract GasBurner {
-    Chess4Profit public game;
+    ChessArena public game;
 
-    function setUp(Chess4Profit g) external {
+    function setUp(ChessArena g) external {
         game = g;
     }
 
@@ -73,7 +73,7 @@ contract GasBurner {
 
 /// @dev Contract that tries to cherry-pick the colour it gets by reverting when unlucky.
 contract ColourSniper {
-    function tryJoin(Chess4Profit g, uint256 id, bool wantWhite) external payable returns (bool) {
+    function tryJoin(ChessArena g, uint256 id, bool wantWhite) external payable returns (bool) {
         g.joinGame{value: msg.value}(id);
         return g.getGame(id).white == address(this) == wantWhite;
     }
@@ -82,14 +82,14 @@ contract ColourSniper {
 contract AdversarialTest is Test {
     using ChessEngine for ChessEngine.Position;
 
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address carol = makeAddr("carol");
     uint256 constant STAKE = 1 ether;
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         vm.deal(alice, 1000 ether);
         vm.deal(bob, 1000 ether);
         vm.deal(carol, 1000 ether);
@@ -166,17 +166,17 @@ contract AdversarialTest is Test {
         // finished: nothing further works for anyone, and the pot isn't paid twice
         uint256 bal = address(game).balance;
         vm.startPrank(alice);
-        vm.expectRevert(Chess4Profit.NotActive.selector);
+        vm.expectRevert(ChessArena.NotActive.selector);
         game.makeMove(id, FenLib.mv("a2a3"));
-        vm.expectRevert(Chess4Profit.NotActive.selector);
+        vm.expectRevert(ChessArena.NotActive.selector);
         game.resign(id);
-        vm.expectRevert(Chess4Profit.NotActive.selector);
+        vm.expectRevert(ChessArena.NotActive.selector);
         game.claimTimeout(id);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.cancelGame(id);
         vm.stopPrank();
         vm.prank(carol);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.joinGame{value: STAKE}(id);
         assertEq(address(game).balance, bal);
     }
@@ -256,7 +256,7 @@ contract AdversarialTest is Test {
         game.resign(id);
         uint256 used = g0 - gasleft();
         assertLt(used, 300_000, "settlement gas bounded despite receiver burning gas");
-        assertEq(uint8(game.getGame(id).status), uint8(Chess4Profit.Status.Finished));
+        assertEq(uint8(game.getGame(id).status), uint8(ChessArena.Status.Finished));
         assertEq(game.pending(address(b)), 2 * STAKE - _fee(2 * STAKE));
     }
 
@@ -287,7 +287,7 @@ contract AdversarialTest is Test {
         uint256 owed = game.pending(address(b));
         assertGt(owed, 0);
         vm.prank(carol);
-        vm.expectRevert(Chess4Profit.NothingToWithdraw.selector);
+        vm.expectRevert(ChessArena.NothingToWithdraw.selector);
         game.withdraw();
         assertEq(game.pending(address(b)), owed, "strangers can't touch another's credit");
     }
@@ -318,7 +318,7 @@ contract AdversarialTest is Test {
 
     function test_stakeBounds() public {
         vm.startPrank(alice);
-        vm.expectRevert(Chess4Profit.BadStake.selector);
+        vm.expectRevert(ChessArena.BadStake.selector);
         game.createGame{value: 1}(1 hours, 0, true);
         game.createGame{value: game.MIN_STAKE()}(1 hours, 0, true);
         vm.stopPrank();
@@ -326,13 +326,13 @@ contract AdversarialTest is Test {
 
     function test_noGameCanBeTouchedBeforeItExists() public {
         vm.startPrank(alice);
-        vm.expectRevert(Chess4Profit.UnknownGame.selector);
+        vm.expectRevert(ChessArena.UnknownGame.selector);
         game.makeMove(0, 1);
-        vm.expectRevert(Chess4Profit.UnknownGame.selector);
+        vm.expectRevert(ChessArena.UnknownGame.selector);
         game.resign(999);
-        vm.expectRevert(Chess4Profit.UnknownGame.selector);
+        vm.expectRevert(ChessArena.UnknownGame.selector);
         game.claimTimeout(1);
-        vm.expectRevert(Chess4Profit.UnknownGame.selector);
+        vm.expectRevert(ChessArena.UnknownGame.selector);
         game.cancelGame(1);
         vm.stopPrank();
     }
@@ -415,9 +415,9 @@ contract AdversarialTest is Test {
             // invariant
             uint256 expected;
             for (uint256 g = 1; g <= game.nextGameId() - 1; ++g) {
-                Chess4Profit.GameView memory v = game.getGame(g);
-                if (v.status == Chess4Profit.Status.Open) expected += v.stake;
-                else if (v.status == Chess4Profit.Status.Active) expected += 2 * v.stake;
+                ChessArena.GameView memory v = game.getGame(g);
+                if (v.status == ChessArena.Status.Open) expected += v.stake;
+                else if (v.status == ChessArena.Status.Active) expected += 2 * v.stake;
             }
             for (uint256 a; a < 3; ++a) expected += game.pending(actors[a]);
             expected += game.pending(game.FEE_RECIPIENT());

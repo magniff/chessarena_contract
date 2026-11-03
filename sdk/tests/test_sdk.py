@@ -6,7 +6,7 @@ import time
 import chess
 import pytest
 
-from chess4profit import Client, ContractError, GameFinished, GameStarted, MoveMade, Reason, Result, Status, Wallet, to_wei
+from chessarena import Client, ContractError, GameFinished, GameStarted, MoveMade, Reason, Result, Status, Wallet, to_wei
 
 
 # ---------------------------------------------------------------- wallet
@@ -88,7 +88,9 @@ def test_event_stream_is_ordered_and_typed(make_client):
         if isinstance(e, GameFinished):
             break
     kinds = [type(e).__name__ for e in seen]
-    assert kinds == ["GameCreated", "GameStarted"] + ["MoveMade"] * 4 + ["GameFinished"]
+    # ratings are settled together with the game, and announced just before GameFinished, so a reader that
+    # stops at GameFinished still sees them
+    assert kinds == ["GameCreated", "GameStarted"] + ["MoveMade"] * 4 + ["RatingsUpdated", "GameFinished"]
     fin = seen[-1]
     assert fin.result == Result.BLACK_WINS and fin.reason == Reason.CHECKMATE and fin.winner == b.address
     assert [m.ply for m in seen if isinstance(m, MoveMade)] == [1, 2, 3, 4]
@@ -135,7 +137,7 @@ def test_two_bots_matchmake_and_play_to_the_end(make_client):
 
 
 def to_wei(x):
-    from chess4profit import to_wei as t
+    from chessarena import to_wei as t
     return t(x)
 
 
@@ -183,7 +185,7 @@ def test_illegal_string_move_is_caught_locally_without_spending_gas(make_client)
 # ---------------------------------------------------------------- monitor (TUI data layer)
 
 def test_monitor_tracks_games_gas_and_results(make_client):
-    from chess4profit.monitor import Monitor
+    from chessarena.monitor import Monitor
     a, b = make_client(), make_client()
     watcher = Client.connect("local")
     mon = Monitor(watcher, {a.address: "alice", b.address: "bob"}, from_block=watcher.w3.eth.block_number + 1)
@@ -224,17 +226,17 @@ def test_tables_isolate_matchmaking_from_spam(make_client):
 
 def test_codehash_pinning_refuses_a_poisoned_contract_address():
     import os
-    os.environ["C4P_CODEHASH"] = "0x" + "11" * 32   # pretend the contract at the configured address is not the official build
+    os.environ["ARENA_CODEHASH"] = "0x" + "11" * 32   # pretend the contract at the configured address is not the official build
     try:
         with pytest.raises(ConnectionError, match="NOT the official"):
             Client.connect("local", wallet=Wallet.create())
     finally:
-        del os.environ["C4P_CODEHASH"]
+        del os.environ["ARENA_CODEHASH"]
     Client.connect("local", wallet=Wallet.create())  # the real one passes
 
 
 def test_gas_price_cap_blocks_signing(make_client):
-    from chess4profit import GasPriceTooHigh
+    from chessarena import GasPriceTooHigh
     a = make_client()
     a.max_fee_gwei = 1e-9  # absurdly low cap = "fees spiked"
     before = a.balance()
@@ -255,7 +257,7 @@ def test_hung_engine_does_not_forfeit_the_game(make_client, tmp_path):
             elif cmd == "isready": print("readyok", flush=True)
             elif cmd.startswith("go"): time.sleep(3600)
     """))
-    from chess4profit import UciEngine
+    from chessarena import UciEngine
     a, b = make_client(), make_client()
     ga = a.create_game("0.01", colour="white", base_time=120)
     gb = b.join_game(ga.id)
@@ -309,8 +311,8 @@ def test_cancel_race_opponent_joins_just_before_we_cancel(make_client, monkeypat
     """Bot A has an open game and decides to swap to a lower-id table. Someone joins A's game between the
     status check and the cancel: cancel() reverts NotOpen. The bot must PLAY the game it is now in,
     not crash and forfeit on time."""
-    from chess4profit import GameInfo
-    from chess4profit.game import Game
+    from chessarena import GameInfo
+    from chessarena.game import Game
     a, b = make_client(), make_client()
     calls = {"n": 0}
 
@@ -519,7 +521,7 @@ def test_resume_mid_game_after_a_crash(make_client):
 
 def test_urgent_transaction_bids_a_higher_tip_and_respects_the_fee_cap():
     """The near-deadline path: fields are actually bumped, and the cap still applies to the bumped fee."""
-    from chess4profit import GasPriceTooHigh
+    from chessarena import GasPriceTooHigh
     a = Client.connect("local", wallet=Wallet.create())
     a.dev_fund(1)
     captured = {}
@@ -586,7 +588,7 @@ def test_profile_contract_rejects_markup_names(make_client):
 
 def test_profile_sanitizes_invisible_unicode_from_chain(make_client):
     """Valid UTF-8 the contract can't cheaply police: right-to-left override, zero-width space, BOM."""
-    from chess4profit import safe_text
+    from chessarena import safe_text
     a, b = make_client(), make_client()
     sneaky = "Trusted‮ bot​ with﻿ tricks"
     a.set_profile("x", sneaky)                    # accepted on-chain (no control bytes)...
@@ -596,7 +598,7 @@ def test_profile_sanitizes_invisible_unicode_from_chain(make_client):
 
 
 def test_monitor_names_come_from_chain_with_address_fragment(make_client):
-    from chess4profit.monitor import Monitor
+    from chessarena.monitor import Monitor
     a, b = make_client(), make_client()
     a.set_profile("Alpha", "first bot")
     watcher = Client.connect("local")

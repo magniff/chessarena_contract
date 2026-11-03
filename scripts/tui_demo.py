@@ -10,9 +10,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from chess4profit import Client, Wallet
-from chess4profit.monitor import Monitor
-from chess4profit.tui import Dashboard
+from chessarena import Client, Wallet
+from chessarena.monitor import Monitor
+from chessarena.tui import Dashboard
 from devchain import deploy, start_anvil
 
 HERE = Path(__file__).resolve().parent
@@ -44,7 +44,7 @@ def main() -> None:
         # no local labels: the dashboard shows each bot's on-chain profile, which the bots publish themselves
         monitor = Monitor(watcher, {w.address: None for w in wallets.values()}, from_block=0)
         for name, stake, skill in BOTS:
-            env = dict(os.environ, C4P_PRIVATE_KEY=wallets[name].account.key.hex(), PYTHONWARNINGS="ignore")
+            env = dict(os.environ, ARENA_PRIVATE_KEY=wallets[name].account.key.hex(), PYTHONWARNINGS="ignore")
             procs.append(subprocess.Popen(
                 [sys.executable, str(HERE / "run_bot.py"), "--stake", stake, "--skill", str(skill),
                  "--delay", str(a.delay), "--movetime", str(a.movetime),

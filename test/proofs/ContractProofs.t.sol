@@ -2,14 +2,15 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../../src/Chess4Profit.sol";
+import {ChessArena} from "../../src/ChessArena.sol";
 import {FenLib} from "../FenLib.sol";
+import {ChessArenaHarness} from "../harness/ChessArenaHarness.sol";
 
 /// Symbolic proofs (Halmos) of the money and clock arithmetic: every stake (all of uint96), every clock setting,
 /// every timing, both seat assignments. The chess itself runs on concrete moves, so paths stay few. `forge test`
 /// skips these (check_ prefix); run with scripts/prove.sh.
 contract ContractProofs is Test {
-    Chess4Profit game;
+    ChessArena game;
     address constant ALICE = address(0xA11CE);
     address constant BOB = address(0xB0B);
     address constant CAROL = address(0xCA201);
@@ -17,8 +18,11 @@ contract ContractProofs is Test {
     uint256 constant T0 = 1_700_000_000;
     uint256 constant MIN_STAKE = 0.0001 ether;
 
+    ChessArenaHarness ratingHarness;
+
     function setUp() public {
-        game = new Chess4Profit();
+        ratingHarness = new ChessArenaHarness();
+        game = new ChessArena();
         fee = game.FEE_RECIPIENT();
         vm.warp(T0);
     }
@@ -53,8 +57,8 @@ contract ContractProofs is Test {
         assert(fee.balance == _fee(stake));
         assert(address(game).balance == 0);
         bool whiteWon = (winner == ALICE) == aliceWhite;
-        Chess4Profit.GameView memory v = game.getGame(id);
-        assert(v.result == (whiteWon ? Chess4Profit.Result.WhiteWins : Chess4Profit.Result.BlackWins));
+        ChessArena.GameView memory v = game.getGame(id);
+        assert(v.result == (whiteWon ? ChessArena.Result.WhiteWins : ChessArena.Result.BlackWins));
     }
 
     /// A draw splits the pot exactly: equal halves, the fee plus any odd wei to the fee recipient, nothing
@@ -70,8 +74,8 @@ contract ContractProofs is Test {
             vm.prank(i % 2 == 0 ? white : black);
             game.makeMove(id, FenLib.mv(line[i]));
         }
-        Chess4Profit.GameView memory v = game.getGame(id);
-        assert(v.result == Chess4Profit.Result.Draw && v.reason == Chess4Profit.Reason.Stalemate);
+        ChessArena.GameView memory v = game.getGame(id);
+        assert(v.result == ChessArena.Result.Draw && v.reason == ChessArena.Reason.Stalemate);
 
         uint256 pot = uint256(stake) * 2;
         uint256 net = pot - _fee(stake);
@@ -94,12 +98,12 @@ contract ContractProofs is Test {
         vm.prank(CAROL);
         try game.claimTimeout(id) {
             assert(dt > base); // white (to move) had `base` seconds
-            Chess4Profit.GameView memory v = game.getGame(id);
-            assert(v.result == Chess4Profit.Result.BlackWins && v.reason == Chess4Profit.Reason.Timeout);
+            ChessArena.GameView memory v = game.getGame(id);
+            assert(v.result == ChessArena.Result.BlackWins && v.reason == ChessArena.Reason.Timeout);
         } catch (bytes memory err) {
             assert(dt <= base);
-            assert(bytes4(err) == Chess4Profit.NotTimedOut.selector);
-            assert(game.getGame(id).status == Chess4Profit.Status.Active);
+            assert(bytes4(err) == ChessArena.NotTimedOut.selector);
+            assert(game.getGame(id).status == ChessArena.Status.Active);
         }
     }
 
@@ -130,7 +134,7 @@ contract ContractProofs is Test {
         vm.warp(T0 + dt1);
         vm.prank(ALICE);
         game.makeMove(id, FenLib.mv("e2e4"));
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         uint256 w = uint256(base) - dt1 + inc;
         if (w > 1 days) w = 1 days;
         assert(v.whiteTime == w);
@@ -151,7 +155,7 @@ contract ContractProofs is Test {
             assert(v.deadline == T0 + uint256(dt1) + dt2 + w);
         } catch (bytes memory err) {
             assert(dt2 > base);
-            assert(bytes4(err) == Chess4Profit.TurnTimedOut.selector);
+            assert(bytes4(err) == ChessArena.TurnTimedOut.selector);
         }
     }
 
@@ -163,7 +167,7 @@ contract ContractProofs is Test {
         try game.makeMove(id, FenLib.mv("e2e4")) {
             assert(false);
         } catch (bytes memory err) {
-            assert(bytes4(err) == Chess4Profit.TurnTimedOut.selector);
+            assert(bytes4(err) == ChessArena.TurnTimedOut.selector);
         }
     }
 
@@ -175,7 +179,44 @@ contract ContractProofs is Test {
         try game.makeMove(id, FenLib.mv("e2e4")) {
             assert(false);
         } catch (bytes memory err) {
-            assert(bytes4(err) == Chess4Profit.NotYourTurn.selector);
+            assert(bytes4(err) == ChessArena.NotYourTurn.selector);
+        }
+    }
+
+    // ------------------------------------------------------------------ ratings
+
+    function _k(uint32 games, bool peaked) internal pure returns (uint256) {
+        return games < 30 ? 40 : (peaked ? 10 : 20);
+    }
+
+    /// The rating step, for EVERY old rating (>= the floor), game count, K state, result and EVERY expected score
+    /// 0..100 (a superset of the FIDE table's values): it never reverts; it is the exact rounding of
+    /// K * (score - expected) (|100 * change - K * (S - E)| <= 50) unless the floor or the uint32 limit
+    /// stops it; it points the right way; it counts the game; and the 2400 flag is sticky.
+    /// (The table lookup reads memory at a data-dependent offset, which Halmos cannot model; it is checked
+    /// exhaustively over every rating difference in test/Elo.t.sol instead.)
+    function check_ratingStepIsExact(uint32 old, uint32 games, bool peaked, uint8 s, uint8 expected) public {
+        vm.assume(old >= 100 && expected <= 100 && s < 3);
+        uint256 score = uint256(s) * 50;
+        uint256 k = _k(games, peaked);
+        try ratingHarness.updated(old, games, peaked, old, score, expected) returns (
+            uint256 nr, uint32 rRating, uint32 rGames, bool rPeaked
+        ) {
+            assert(rRating == nr);
+            assert(nr >= 100 && nr <= type(uint32).max);
+            int256 change = int256(nr) - int256(uint256(old));
+            int256 exact = int256(k) * (int256(score) - int256(uint256(expected))); // 100 x the real change
+            int256 err = change * 100 - exact;
+            bool floored = nr == 100 && exact < 0;
+            bool saturated = nr == type(uint32).max && exact > 0;
+            if (!floored && !saturated) assert(err <= 50 && err >= -50);
+            if (score >= expected) assert(nr >= old);
+            else assert(nr <= old);
+            assert(change <= int256(k) && change >= -int256(k));
+            assert(rGames == (games == type(uint32).max ? games : games + 1));
+            assert(rPeaked == (peaked || nr >= 2400));
+        } catch {
+            assert(false); // the step must never revert
         }
     }
 
@@ -198,7 +239,7 @@ contract ContractProofs is Test {
             assert(address(game).balance == 0);
         } catch (bytes memory err) {
             assert(byStranger && dt <= 1 hours);
-            assert(bytes4(err) == Chess4Profit.NotCreator.selector);
+            assert(bytes4(err) == ChessArena.NotCreator.selector);
             assert(address(game).balance == stake);
         }
     }
@@ -216,7 +257,7 @@ contract ContractProofs is Test {
             assert(address(game).balance == uint256(stake) * 2);
         } catch (bytes memory err) {
             assert(dt > 1 hours);
-            assert(bytes4(err) == Chess4Profit.Expired.selector);
+            assert(bytes4(err) == ChessArena.Expired.selector);
             assert(BOB.balance == stake);
         }
     }

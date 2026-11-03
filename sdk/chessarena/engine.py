@@ -143,7 +143,7 @@ def as_chooser(engine) -> Chooser:
         return engine  # already prepared (e.g. by Client.play before staking)
     if isinstance(engine, str):
         if engine == "builtin":
-            engine = UciEngine([sys.executable, "-m", "chess4profit.randomfish"])
+            engine = UciEngine([sys.executable, "-m", "chessarena.randomfish"])
         else:
             engine = UciEngine(engine)
     if isinstance(engine, UciEngine):

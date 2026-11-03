@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Chess4Profit} from "../src/Chess4Profit.sol";
+import {ChessArena} from "../src/ChessArena.sol";
 import {FenLib} from "./FenLib.sol";
 
 /// Creates games from a contract that refuses ETH (so its refunds must fall back to `pending`).
 contract RejectingCreator {
-    function create(Chess4Profit g, uint32 base) external payable returns (uint256) {
+    function create(ChessArena g, uint32 base) external payable returns (uint256) {
         return g.createGame{value: msg.value}(base, 0, true);
     }
 
@@ -17,7 +17,7 @@ contract RejectingCreator {
 }
 
 contract AttacksTest is Test {
-    Chess4Profit game;
+    ChessArena game;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address mallory = makeAddr("mallory");
@@ -25,7 +25,7 @@ contract AttacksTest is Test {
     bytes32 T; // the (1 ether, 120s, +0) table most tests sit at
 
     function setUp() public {
-        game = new Chess4Profit();
+        game = new ChessArena();
         T = game.lobbyKey(STAKE, 120, 0);
         vm.deal(alice, 1_000_000 ether);
         vm.deal(bob, 1_000_000 ether);
@@ -53,7 +53,7 @@ contract AttacksTest is Test {
         // both sides burn 40s per move; with a 100s bank each, somebody must be flagged within 2*100s of total play
         for (; i < line.length; ++i) {
             vm.warp(block.timestamp + 40);
-            Chess4Profit.GameView memory v = game.getGame(id);
+            ChessArena.GameView memory v = game.getGame(id);
             if (block.timestamp - v.lastMoveAt > (v.whiteToMove ? v.whiteTime : v.blackTime)) break;
             vm.prank(i % 2 == 0 ? w : b);
             game.makeMove(id, FenLib.mv(line[i]));
@@ -61,7 +61,7 @@ contract AttacksTest is Test {
         assertLt(i, line.length, "someone must have run out of time");
         vm.prank(mallory);
         game.claimTimeout(id);
-        assertEq(uint8(game.getGame(id).reason), uint8(Chess4Profit.Reason.Timeout));
+        assertEq(uint8(game.getGame(id).reason), uint8(ChessArena.Reason.Timeout));
         assertLe(block.timestamp - t0, 2 * 100 + 40, "game cannot outlast the combined bank (+1 move)");
     }
 
@@ -70,7 +70,7 @@ contract AttacksTest is Test {
         vm.warp(block.timestamp + 10);
         vm.prank(w);
         game.makeMove(id, FenLib.mv("e2e4"));
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         assertEq(v.whiteTime, 60 - 10 + 5);
         assertEq(v.blackTime, 60, "black's clock hasn't started yet");
         vm.warp(block.timestamp + 60); // black uses everything: exactly 60 is still legal
@@ -82,18 +82,18 @@ contract AttacksTest is Test {
         game.makeMove(id, FenLib.mv("g1f3"));
         vm.warp(block.timestamp + 6); // black has 5 left, 6 elapsed -> flagged
         vm.prank(b);
-        vm.expectRevert(Chess4Profit.TurnTimedOut.selector);
+        vm.expectRevert(ChessArena.TurnTimedOut.selector);
         game.makeMove(id, FenLib.mv("b8c6"));
         game.claimTimeout(id);
-        assertEq(uint8(game.getGame(id).result), uint8(Chess4Profit.Result.WhiteWins));
+        assertEq(uint8(game.getGame(id).result), uint8(ChessArena.Result.WhiteWins));
     }
 
     function test_clock_deadlineViewMatchesBehaviour() public {
         (uint256 id,,) = _start(90, 0);
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         assertEq(v.deadline, block.timestamp + 90);
         vm.warp(v.deadline);
-        vm.expectRevert(Chess4Profit.NotTimedOut.selector);
+        vm.expectRevert(ChessArena.NotTimedOut.selector);
         game.claimTimeout(id);
         vm.warp(v.deadline + 1);
         game.claimTimeout(id);
@@ -101,11 +101,11 @@ contract AttacksTest is Test {
 
     function test_clock_boundsRejected() public {
         vm.startPrank(alice);
-        vm.expectRevert(Chess4Profit.BadTimeout.selector);
+        vm.expectRevert(ChessArena.BadTimeout.selector);
         game.createGame{value: STAKE}(29, 0, true);
-        vm.expectRevert(Chess4Profit.BadTimeout.selector);
+        vm.expectRevert(ChessArena.BadTimeout.selector);
         game.createGame{value: STAKE}(1 days + 1, 0, true);
-        vm.expectRevert(Chess4Profit.BadTimeout.selector);
+        vm.expectRevert(ChessArena.BadTimeout.selector);
         game.createGame{value: STAKE}(60, 10 minutes + 1, true);
         game.createGame{value: STAKE}(1 days, 10 minutes, true); // extremes are accepted
         vm.stopPrank();
@@ -139,16 +139,16 @@ contract AttacksTest is Test {
                 : string(abi.encodePacked(f, "6", f, "5"));
             vm.prank(i % 2 == 0 ? w : b);
             game.makeMove(id, FenLib.mv(mv));
-            Chess4Profit.GameView memory v = game.getGame(id);
+            ChessArena.GameView memory v = game.getGame(id);
             assertLe(v.whiteTime, game.MAX_BASE_TIME());
             assertLe(v.blackTime, game.MAX_BASE_TIME());
         }
         // ...and the hoarder can still be flagged after at most MAX_BASE_TIME
-        Chess4Profit.GameView memory v = game.getGame(id);
+        ChessArena.GameView memory v = game.getGame(id);
         assertEq(v.deadline, block.timestamp + 1 days);
         vm.warp(block.timestamp + 1 days + 1);
         game.claimTimeout(id);
-        assertEq(uint8(game.getGame(id).reason), uint8(Chess4Profit.Reason.Timeout));
+        assertEq(uint8(game.getGame(id).reason), uint8(ChessArena.Reason.Timeout));
     }
 
     function test_clock_incrementStillWorksBelowTheCap() public {
@@ -167,7 +167,7 @@ contract AttacksTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(bob);
         game.claimTimeout(id); // victim is made whole (and wins the pot) after at most MAX_BASE_TIME
-        assertEq(uint8(game.getGame(id).result), uint8(Chess4Profit.Result.BlackWins));
+        assertEq(uint8(game.getGame(id).result), uint8(ChessArena.Result.BlackWins));
     }
 
     // =============================================================== lobby spam / orphans
@@ -234,7 +234,7 @@ contract AttacksTest is Test {
         vm.warp(block.timestamp + game.OPEN_WINDOW() + 1);
         assertEq(game.openGames(T, 10, 10).length, 0, "expired games are not advertised");
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.Expired.selector);
+        vm.expectRevert(ChessArena.Expired.selector);
         game.joinGame{value: STAKE}(id2);
     }
 
@@ -242,7 +242,7 @@ contract AttacksTest is Test {
         vm.prank(alice);
         uint256 id = game.createGame{value: STAKE}(120, 0, true);
         vm.prank(mallory);
-        vm.expectRevert(Chess4Profit.NotCreator.selector);
+        vm.expectRevert(ChessArena.NotCreator.selector);
         game.cancelGame(id); // not before expiry
         vm.warp(block.timestamp + game.OPEN_WINDOW() + 1);
         uint256 a0 = alice.balance;
@@ -253,7 +253,7 @@ contract AttacksTest is Test {
         assertEq(mallory.balance, m0);
         assertEq(game.openGameCount(T), 0);
         vm.prank(alice);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.cancelGame(id); // no double refund
     }
 
@@ -278,9 +278,9 @@ contract AttacksTest is Test {
         assertEq(game.pending(address(rc)), STAKE, "rejecting creator is credited, others are unaffected");
         assertEq(game.openGameCount(T), 1);
         assertEq(game.openGames(T, 5, 5)[0], fresh);
-        assertEq(uint8(game.getGame(a1).status), uint8(Chess4Profit.Status.Cancelled));
-        assertEq(uint8(game.getGame(r1).status), uint8(Chess4Profit.Status.Cancelled));
-        assertEq(uint8(game.getGame(b1).status), uint8(Chess4Profit.Status.Cancelled));
+        assertEq(uint8(game.getGame(a1).status), uint8(ChessArena.Status.Cancelled));
+        assertEq(uint8(game.getGame(r1).status), uint8(ChessArena.Status.Cancelled));
+        assertEq(uint8(game.getGame(b1).status), uint8(ChessArena.Status.Cancelled));
         assertEq(address(game).balance, 2 * STAKE - STAKE + STAKE, "fresh stake + rejected credit remain");
     }
 
@@ -291,7 +291,7 @@ contract AttacksTest is Test {
         game.cancelGame(id);
         assertEq(game.openGameCount(T), 0);
         vm.prank(bob);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.joinGame{value: STAKE}(id);
         vm.prank(alice);
         uint256 id2 = game.createGame{value: STAKE}(120, 0, true);
@@ -299,7 +299,7 @@ contract AttacksTest is Test {
         game.joinGame{value: STAKE}(id2);
         assertEq(game.openGameCount(T), 0);
         vm.prank(mallory);
-        vm.expectRevert(Chess4Profit.NotOpen.selector);
+        vm.expectRevert(ChessArena.NotOpen.selector);
         game.joinGame{value: STAKE}(id2);
     }
 
@@ -347,11 +347,11 @@ contract AttacksTest is Test {
             uint256 openCount;
             uint256 locked;
             for (uint256 g = 1; g <= game.nextGameId() - 1; ++g) {
-                Chess4Profit.GameView memory v = game.getGame(g);
-                if (v.status == Chess4Profit.Status.Open) {
+                ChessArena.GameView memory v = game.getGame(g);
+                if (v.status == ChessArena.Status.Open) {
                     ++openCount;
                     locked += v.stake;
-                } else if (v.status == Chess4Profit.Status.Active) {
+                } else if (v.status == ChessArena.Status.Active) {
                     locked += 2 * v.stake;
                 }
             }

@@ -87,6 +87,17 @@ class GameFinished(Event):
     fee: int
 
 
+@dataclass(frozen=True)
+class RatingsUpdated(Event):
+    """Both players' Elo ratings before and after a rated game (emitted together with GameFinished)."""
+    white: str
+    white_before: int
+    white_after: int
+    black: str
+    black_before: int
+    black_after: int
+
+
 ZERO = "0x0000000000000000000000000000000000000000"
 
 
@@ -107,4 +118,8 @@ def parse(name: str, log) -> Optional[Event]:
         w = a["winner"]
         return GameFinished(a["gameId"], **base, result=Result(a["result"]), reason=Reason(a["reason"]),
                             winner=None if w == ZERO else w, payout=a["payout"], fee=a["fee"])
+    if name == "RatingsUpdated":
+        return RatingsUpdated(a["gameId"], **base, white=a["white"], white_before=a["whiteBefore"],
+                              white_after=a["whiteAfter"], black=a["black"], black_before=a["blackBefore"],
+                              black_after=a["blackAfter"])
     return None

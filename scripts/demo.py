@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import threading
 
-from chess4profit import Client, Wallet
+from chessarena import Client, Wallet
 from devchain import deploy, start_anvil
 
 
